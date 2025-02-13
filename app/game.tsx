@@ -85,6 +85,8 @@ export default function GameScreen() {
   const [detectionStatus, setDetectionStatus] = useState<'searching' | 'found' | 'processing'>('searching');
   const [lastDetectionTime, setLastDetectionTime] = useState(0);
   const processingTimeoutRef = useRef<NodeJS.Timeout>();
+  const [isCameraReady, setIsCameraReady] = useState(false);
+  const [isProcessingFrame, setIsProcessingFrame] = useState(false);
 
   const scale = useSharedValue(1);
   const savedScale = useSharedValue(1);
@@ -141,32 +143,51 @@ export default function GameScreen() {
     })();
   }, []);
 
-  const processPreviewFrame = async () => {
-    if (dartPredictor && dartPredictor.isReady() && cameraRef.current) {
-      try {
-        const photo = await cameraRef.current.takePictureAsync({
-          quality: 1,
-          base64: true,
-          skipProcessing: true
-        });
+  useEffect(() => {
+    let isMounted = true;
+    const interval = setInterval(async () => {
+      if (!isMounted || !isCameraReady || isProcessingFrame) return;
 
-        if (photo?.base64) {
-          const imageData = Buffer.from(photo.base64, 'base64');
-          const predictions = await dartPredictor.predict(new Uint8Array(imageData));
-          if (predictions.length > 0) {
-            setScore(predictions);
-          }
+      try {
+        setIsProcessingFrame(true);
+        await processPreviewFrame();
+      } finally {
+        if (isMounted) {
+          setIsProcessingFrame(false);
         }
-      } catch (error) {
-        console.error('Error taking picture:', error);
       }
+    }, 2000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [dartPredictor, isCameraReady]);
+
+  const processPreviewFrame = async () => {
+    if (!dartPredictor?.isReady() || !cameraRef.current || !isCameraReady) {
+      return;
+    }
+
+    try {
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 1,
+        base64: true,
+        skipProcessing: true,
+        exif: false
+      });
+
+      if (photo?.base64) {
+        const imageData = Buffer.from(photo.base64, 'base64');
+        const predictions = await dartPredictor.predict(new Uint8Array(imageData.buffer));
+        if (predictions.length > 0) {
+          setScore(predictions);
+        }
+      }
+    } catch (error) {
+      console.error('Error taking picture:', error);
     }
   };
-
-  useEffect(() => {
-    const interval = setInterval(() => { processPreviewFrame(); }, 1000);
-    return () => clearInterval(interval);
-  }, [dartPredictor]);
 
   useEffect(() => {
     let isProcessing = false;
@@ -389,6 +410,11 @@ export default function GameScreen() {
                   pictureSize="800x800"
                   onCameraReady={() => {
                     console.log('Camera ready');
+                    setIsCameraReady(true);
+                  }}
+                  onMountError={(error) => {
+                    console.error('Camera mount error:', error);
+                    setIsCameraReady(false);
                   }}
                 />
               </Animated.View>
