@@ -7,7 +7,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 
 const { width } = Dimensions.get('window');
 const CAMERA_WIDTH = width - 32;
-const CAMERA_HEIGHT = (CAMERA_WIDTH * 4) / 3;
+const CAMERA_HEIGHT = Math.min((CAMERA_WIDTH * 4) / 3, 300);
 
 const colors = {
   light: {
@@ -18,6 +18,7 @@ const colors = {
     primary: '#007AFF',
     success: '#34C759',
     border: '#E5E5EA',
+    active: '#FF3B30',
   },
   dark: {
     background: '#1C1C1E',
@@ -27,6 +28,7 @@ const colors = {
     primary: '#0A84FF',
     success: '#30D158',
     border: '#38383A',
+    active: '#FF453A',
   },
 };
 
@@ -36,6 +38,10 @@ interface Player {
   score: number;
   legs: number;
   sets: number;
+}
+
+interface Dart {
+  value: number | null;
 }
 
 export default function GameScreen() {
@@ -56,6 +62,12 @@ export default function GameScreen() {
       sets: 0,
     }))
   );
+  const [activePlayerIndex, setActivePlayerIndex] = useState(0);
+  const [currentDarts, setCurrentDarts] = useState<Dart[]>([
+    { value: null },
+    { value: null },
+    { value: null }
+  ]);
   const [permission, requestPermission] = useCameraPermissions();
 
   if (!permission) {
@@ -113,10 +125,16 @@ export default function GameScreen() {
               style={[
                 styles.playerRow,
                 index === 0 && styles.firstPlayer,
+                index === activePlayerIndex && { backgroundColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)' },
                 { borderTopColor: theme.border }
               ]}
             >
-              <Text style={[styles.playerName, { color: theme.text }]}>{player.name}</Text>
+              <View style={styles.playerInfo}>
+                <Text style={[
+                  styles.playerName, 
+                  { color: theme.text }
+                ]}>{player.name}</Text>
+              </View>
               <View style={styles.statsContainer}>
                 <Text style={[styles.statValue, { color: theme.text }]}>{player.sets}</Text>
                 <Text style={[styles.statValue, { color: theme.text }]}>{player.legs}</Text>
@@ -124,6 +142,25 @@ export default function GameScreen() {
               </View>
             </View>
           ))}
+        </View>
+
+        <View style={[styles.turnDisplay, { backgroundColor: theme.card }]}>
+          <Text style={[styles.turnLabel, { color: theme.textSecondary }]}>HUIDIGE BEURT</Text>
+          <View style={styles.dartsContainer}>
+            {currentDarts.map((dart, index) => (
+              <View 
+                key={index} 
+                style={[
+                  styles.dartBox,
+                  { borderColor: theme.border }
+                ]}
+              >
+                <Text style={[styles.dartValue, { color: theme.text }]}>
+                  {dart.value ?? '-'}
+                </Text>
+              </View>
+            ))}
+          </View>
         </View>
 
         <View style={styles.cameraContainer}>
@@ -151,10 +188,11 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    paddingTop: 120,
+    paddingTop: 80,
   },
   scoreBoard: {
     margin: 16,
+    marginBottom: 8,
     borderRadius: 16,
     overflow: 'hidden',
   },
@@ -162,7 +200,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 8,
   },
   headerText: {
     fontSize: 13,
@@ -178,11 +216,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 8,
     borderTopWidth: 1,
   },
   firstPlayer: {
     borderTopWidth: 0,
+  },
+  playerInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   playerName: {
     fontSize: 17,
@@ -227,7 +270,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   cameraContainer: {
-    marginTop: 16,
     marginHorizontal: 16,
     borderRadius: 16,
     overflow: 'hidden',
@@ -235,5 +277,34 @@ const styles = StyleSheet.create({
   },
   camera: {
     width: '100%',
+  },
+  turnDisplay: {
+    margin: 16,
+    marginVertical: 8,
+    padding: 12,
+    borderRadius: 16,
+  },
+  turnLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: 1,
+    marginBottom: 12,
+  },
+  dartsContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'center',
+  },
+  dartBox: {
+    width: 64,
+    height: 64,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dartValue: {
+    fontSize: 24,
+    fontWeight: '700',
   },
 }); 
