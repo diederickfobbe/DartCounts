@@ -143,6 +143,75 @@ export default function GameScreen() {
     })();
   }, []);
 
+  const processPreviewFrame = async () => {
+    if (!dartPredictor?.isReady() || !cameraRef.current || !isCameraReady) {
+      return;
+    }
+
+    const now = Date.now();
+    if (now - lastDetectionTime < 2000 && detectionStatus === 'processing') {
+      return;
+    }
+
+    try {
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 1,
+        base64: true,
+        skipProcessing: true,
+        exif: false
+      });
+
+      if (photo?.base64) {
+        const imageData = Buffer.from(photo.base64, 'base64');
+        const predictions = await dartPredictor.predict(new Uint8Array(imageData.buffer));
+        
+        if (predictions.length > 0) {
+          setDetectionStatus('found');
+          setLastDetectionTime(now);
+          
+          if (processingTimeoutRef.current) {
+            clearTimeout(processingTimeoutRef.current);
+          }
+
+          processingTimeoutRef.current = setTimeout(() => {
+            setDetectionStatus('processing');
+            const dartIndex = currentDarts.findIndex(dart => dart.value === null);
+            if (dartIndex !== -1) {
+              const newDarts = [...currentDarts];
+              newDarts[dartIndex] = { value: predictions[0] };
+              setCurrentDarts(newDarts);
+
+              if (dartIndex === 2) {
+                const totalScore = newDarts.reduce((sum, dart) => sum + (dart.value || 0), 0);
+                const newPlayers = [...players];
+                const currentPlayer = newPlayers[activePlayerIndex];
+                currentPlayer.score -= totalScore;
+                
+                setPlayers(newPlayers);
+                setActivePlayerIndex((activePlayerIndex + 1) % players.length);
+                setCurrentDarts([
+                  { value: null },
+                  { value: null },
+                  { value: null }
+                ]);
+              }
+              setDetectionStatus('searching');
+            }
+          }, 500);
+        } else {
+          if (detectionStatus !== 'processing') {
+            setDetectionStatus('searching');
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error taking picture:', error);
+      if (detectionStatus !== 'processing') {
+        setDetectionStatus('searching');
+      }
+    }
+  };
+
   useEffect(() => {
     let isMounted = true;
     const interval = setInterval(async () => {
@@ -161,139 +230,11 @@ export default function GameScreen() {
     return () => {
       isMounted = false;
       clearInterval(interval);
-    };
-  }, [dartPredictor, isCameraReady]);
-
-  const processPreviewFrame = async () => {
-    if (!dartPredictor?.isReady() || !cameraRef.current || !isCameraReady) {
-      return;
-    }
-
-    try {
-      const photo = await cameraRef.current.takePictureAsync({
-        quality: 1,
-        base64: true,
-        skipProcessing: true,
-        exif: false
-      });
-
-      if (photo?.base64) {
-        const imageData = Buffer.from(photo.base64, 'base64');
-        const predictions = await dartPredictor.predict(new Uint8Array(imageData.buffer));
-        if (predictions.length > 0) {
-          setScore(predictions);
-        }
-      }
-    } catch (error) {
-      console.error('Error taking picture:', error);
-    }
-  };
-
-  useEffect(() => {
-    let isProcessing = false;
-    const COOLDOWN_TIME = 2000; // 2 seconden wachten tussen detecties
-    let lastProcessTime = 0;
-    const FRAME_INTERVAL = 1000 / 24; // ~42ms voor 24 FPS
-    let frameId: number;
-    let consecutiveDetections = 0;
-    const REQUIRED_DETECTIONS = 3; // Aantal opeenvolgende detecties nodig voor bevestiging
-
-    const processPreviewFrame = async () => {
-      if (!dartPredictor || !cameraRef.current || isProcessing) {
-        frameId = requestAnimationFrame(processPreviewFrame);
-        return;
-      }
-
-      const now = Date.now();
-      if (now - lastProcessTime < FRAME_INTERVAL) {
-        frameId = requestAnimationFrame(processPreviewFrame);
-        return;
-      }
-      lastProcessTime = now;
-
-      try {
-        isProcessing = true;
-        if (now - lastDetectionTime < COOLDOWN_TIME && detectionStatus === 'processing') {
-          isProcessing = false;
-          frameId = requestAnimationFrame(processPreviewFrame);
-          return;
-        }
-
-        // Simuleer frame data voor nu
-        const scores = await dartPredictor.predict(new Uint8Array(100));
-        
-        if (scores.length > 0) {
-          consecutiveDetections++;
-          
-          if (consecutiveDetections >= REQUIRED_DETECTIONS) {
-            if (detectionStatus !== 'found' && detectionStatus !== 'processing') {
-              setDetectionStatus('found');
-              setLastDetectionTime(now);
-              
-              // Clear any existing timeout
-              if (processingTimeoutRef.current) {
-                clearTimeout(processingTimeoutRef.current);
-              }
-
-              // Start processing after a short delay
-              processingTimeoutRef.current = setTimeout(() => {
-                setDetectionStatus('processing');
-                const dartIndex = currentDarts.findIndex(dart => dart.value === null);
-                if (dartIndex !== -1) {
-                  const newDarts = [...currentDarts];
-                  newDarts[dartIndex] = { value: scores[0] };
-                  setCurrentDarts(newDarts);
-
-                  if (dartIndex === 2) {
-                    const totalScore = newDarts.reduce((sum, dart) => sum + (dart.value || 0), 0);
-                    const newPlayers = [...players];
-                    const currentPlayer = newPlayers[activePlayerIndex];
-                    currentPlayer.score -= totalScore;
-                    
-                    setPlayers(newPlayers);
-                    setActivePlayerIndex((activePlayerIndex + 1) % players.length);
-                    setCurrentDarts([
-                      { value: null },
-                      { value: null },
-                      { value: null }
-                    ]);
-                  }
-                  consecutiveDetections = 0;
-                  setDetectionStatus('searching');
-                }
-              }, 500);
-            }
-          }
-        } else {
-          consecutiveDetections = 0;
-          if (detectionStatus !== 'processing') {
-            setDetectionStatus('searching');
-          }
-        }
-      } catch (error: any) {
-        console.error('Error processing frame:', error);
-        consecutiveDetections = 0;
-        if (detectionStatus !== 'processing') {
-          setDetectionStatus('searching');
-        }
-      } finally {
-        isProcessing = false;
-        frameId = requestAnimationFrame(processPreviewFrame);
-      }
-    };
-
-    // Start frame processing
-    frameId = requestAnimationFrame(processPreviewFrame);
-
-    return () => {
-      if (frameId) {
-        cancelAnimationFrame(frameId);
-      }
       if (processingTimeoutRef.current) {
         clearTimeout(processingTimeoutRef.current);
       }
     };
-  }, [dartPredictor]);
+  }, [dartPredictor, isCameraReady]);
 
   const calculateScore = (boardBox: any, dartPosition: any) => {
     // Implementatie van score berekening zoals in dart_detector.py
