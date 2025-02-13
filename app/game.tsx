@@ -76,8 +76,8 @@ export default function GameScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [isProcessing, setIsProcessing] = useState(false);
   const cameraRef = useRef<CameraView>(null);
-  const [predictor, setPredictor] = useState<DartPredictor | null>(null);
-  const [isModelReady, setIsModelReady] = useState(false);
+  const [dartPredictor, setDartPredictor] = useState<DartPredictor | null>(null);
+  const [score, setScore] = useState<number[]>([]);
   const [detection, setDetection] = useState<{
     boardBox?: { x: number; y: number; width: number; height: number };
     dartPositions?: { x: number; y: number }[];
@@ -101,19 +101,72 @@ export default function GameScreen() {
     transform: [{ scale: Math.max(1, Math.min(5, scale.value)) }]
   }));
 
+  function base64ToUint8Array(base64: string): Uint8Array {
+    const binaryString = global.atob(base64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes;
+  }
+
+  const modelConfig = {
+    board: {
+      width: 800,
+      height: 800,
+      center: { x: 400, y: 400 },
+      r_board: 0.2255,
+      r_double: 0.17,
+      r_treble: 0.1074,
+      r_outer_bull: 0.0159,
+      r_inner_bull: 0.00635,
+      w_double_treble: 0.01
+    },
+    model: {
+      input_size: 800,
+      tiny: true,
+      confidence_threshold: 0.5,
+      iou_threshold: 0.5,
+      weights_path: ''
+    }
+  };
+
   useEffect(() => {
-    async function initializePredictor() {
+    (async () => {
+      await tf.ready();
+      const predictorInstance = new DartPredictorImpl(modelConfig);
+      await predictorInstance.initialize();
+      setDartPredictor(predictorInstance);
+    })();
+  }, []);
+
+  const processPreviewFrame = async () => {
+    if (dartPredictor && dartPredictor.isReady() && cameraRef.current) {
       try {
-        await tf.ready();
-        const dartPredictor = new DartPredictorImpl();
-        setPredictor(dartPredictor);
-        setIsModelReady(true);
+        const photo = await cameraRef.current.takePictureAsync({
+          quality: 1,
+          base64: true,
+          skipProcessing: true
+        });
+
+        if (photo?.base64) {
+          const imageData = Buffer.from(photo.base64, 'base64');
+          const predictions = await dartPredictor.predict(new Uint8Array(imageData));
+          if (predictions.length > 0) {
+            setScore(predictions);
+          }
+        }
       } catch (error) {
-        console.error('Error initializing predictor:', error);
+        console.error('Error taking picture:', error);
       }
     }
-    initializePredictor();
-  }, []);
+  };
+
+  useEffect(() => {
+    const interval = setInterval(() => { processPreviewFrame(); }, 1000);
+    return () => clearInterval(interval);
+  }, [dartPredictor]);
 
   useEffect(() => {
     let isProcessing = false;
@@ -125,7 +178,7 @@ export default function GameScreen() {
     const REQUIRED_DETECTIONS = 3; // Aantal opeenvolgende detecties nodig voor bevestiging
 
     const processPreviewFrame = async () => {
-      if (!isModelReady || !predictor || !cameraRef.current || isProcessing) {
+      if (!dartPredictor || !cameraRef.current || isProcessing) {
         frameId = requestAnimationFrame(processPreviewFrame);
         return;
       }
@@ -146,7 +199,7 @@ export default function GameScreen() {
         }
 
         // Simuleer frame data voor nu
-        const scores = await predictor.predict(new Uint8Array(100));
+        const scores = await dartPredictor.predict(new Uint8Array(100));
         
         if (scores.length > 0) {
           consecutiveDetections++;
@@ -219,7 +272,7 @@ export default function GameScreen() {
         clearTimeout(processingTimeoutRef.current);
       }
     };
-  }, [isModelReady, predictor]);
+  }, [dartPredictor]);
 
   const calculateScore = (boardBox: any, dartPosition: any) => {
     // Implementatie van score berekening zoals in dart_detector.py
@@ -333,6 +386,10 @@ export default function GameScreen() {
                   facing="back"
                   ratio="4:3"
                   zoom={scale.value}
+                  pictureSize="800x800"
+                  onCameraReady={() => {
+                    console.log('Camera ready');
+                  }}
                 />
               </Animated.View>
             </GestureDetector>

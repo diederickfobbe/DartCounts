@@ -8,6 +8,7 @@
     "scheme": "myapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "assetBundlePatterns": ["ml/models/deepdarts_d2/*"],
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
