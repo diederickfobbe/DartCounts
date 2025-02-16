@@ -1,7 +1,9 @@
-tensorflow==2.4.1
-tensorflow-gpu==2.4.1
+tensorflow==2.10.0
 opencv-python
 numpy
 matplotlib
 tqdm
-PyYAML 
+PyYAML
+yacs
+pandas
+scikit-learn 
